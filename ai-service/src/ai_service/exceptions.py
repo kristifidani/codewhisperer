@@ -26,3 +26,9 @@ class NotFound(AIServiceError):
     """Raised when something is not found."""
 
     pass
+
+
+class InvalidParam(AIServiceError):
+    """Raised when something is invalid."""
+
+    pass

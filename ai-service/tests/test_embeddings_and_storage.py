@@ -1,8 +1,7 @@
 import pytest
 import numpy as np
 from ai_service.embedder import embed_text, embed_texts
-from ai_service.db import add_chunks, collection
-
+from ai_service import db
 from ai_service.exceptions import EmbeddingError
 
 # ------------------ Input Validation ------------------
@@ -35,15 +34,11 @@ def test_embed_and_store_and_retrieve_texts():
         "def b(): pass",
     ]
     embeddings = embed_texts(sample_texts)
-    add_chunks(sample_texts, embeddings)
+    db.add_chunks(sample_texts, embeddings)
 
-    try:
-        for i, embedding in enumerate(embeddings):
-            result = collection.query(query_embeddings=[embedding], n_results=1)
-            assert result["documents"][0][0] == sample_texts[i]  # Check exact match
-    finally:
-        for text in sample_texts:
-            collection.delete(where={"$contains": text})
+    for i, embedding in enumerate(embeddings):
+        result = db.collection.query(query_embeddings=[embedding], n_results=1)
+        assert result["documents"][0][0] == sample_texts[i]  # Check exact match
 
 
 # ------------------ Unicode, Special Characters ------------------
@@ -70,22 +65,22 @@ def test_embed_and_store_and_retrieve_texts():
         "中",  # Chinese char
     ],
 )
-def test_embed_and_retrieve_special_and_unicode_texts(text):
+def test_embed_and_retrieve_special_and_unicode_texts(
+    text,
+):
     embedding = embed_text(text)
     assert embedding is not None and len(embedding) > 0
 
-    add_chunks([text], [embedding])
-    try:
-        result = collection.query(query_embeddings=[embedding], n_results=1)
-        assert result["documents"][0][0] == text
-    finally:
-        collection.delete(where={"$contains": text})
+    db.add_chunks([text], [embedding])
+
+    result = db.collection.query(query_embeddings=[embedding], n_results=1)
+    assert result["documents"][0][0] == text
 
 
 # ------------------ Embedding Properties & Structure ------------------
 
 
-# Check the embedding's structure, type, and integration with the vector DB
+# Check the embedding's structure, type, and integration with chroma DB
 def test_embedding_output_properties_and_structure():
     text = "def test_function(): return True"
     embedding = embed_text(text)
@@ -97,15 +92,14 @@ def test_embedding_output_properties_and_structure():
     assert len(embedding) > 0
 
     # Validate output structure from the DB query
-    try:
-        result = collection.query(query_embeddings=[embedding], n_results=1)
-        assert isinstance(result, dict)
-        assert "documents" in result and isinstance(result["documents"], list)
-        assert isinstance(result["documents"][0], list)
-        assert len(result["documents"][0]) > 0
-        assert "ids" in result
-    finally:
-        collection.delete(where={"$contains": text})
+
+    db.add_chunks([text], [embedding])
+    result = db.collection.query(query_embeddings=[embedding], n_results=1)
+    assert isinstance(result, dict)
+    assert "documents" in result and isinstance(result["documents"], list)
+    assert isinstance(result["documents"][0], list)
+    assert len(result["documents"][0]) > 0
+    assert "ids" in result
 
 
 # ------------------ Query Behavior ------------------
@@ -119,20 +113,15 @@ def test_query_with_varied_n_results():
         "def function_c(): pass",
     ]
     embeddings = embed_texts(sample_texts)
-    add_chunks(sample_texts, embeddings)
+    db.add_chunks(sample_texts, embeddings)
 
-    try:
-        for n in [1, 2, 5]:  # Requesting more results than stored is valid
-            result = collection.query(query_embeddings=[embeddings[0]], n_results=n)
-            docs = result["documents"][0]
-            # NOTE:
-            # ChromaDB may return duplicate documents when n_results exceeds the number
-            # of uniquely stored items. This causes the length of the returned list
-            # to exceed the number of stored items.
-            # To handle this properly, we count only unique documents.
-            unique_docs = set(docs)
-            assert len(unique_docs) <= n
-
-    finally:
-        for text in sample_texts:
-            collection.delete(where={"$contains": text})
+    for n in [1, 2, 5]:  # Requesting more results than stored is valid
+        result = db.collection.query(query_embeddings=[embeddings[0]], n_results=n)
+        docs = result["documents"][0]
+        # NOTE:
+        # ChromaDB may return duplicate documents when n_results exceeds the number
+        # of uniquely stored items. This causes the length of the returned list
+        # to exceed the number of stored items.
+        # To handle this properly, we count only unique documents.
+        unique_docs = set(docs)
+        assert len(unique_docs) <= n
